@@ -1,0 +1,154 @@
+name: Build clickhouse image
+on:
+  push:
+    tags:
+      - "*"
+jobs:
+  prepare_build_context:
+    name: Prepare Build Context
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        shell: bash
+      - name: Get clickhouse code
+        run: |
+          git clone https://github.com/ClickHouse/ClickHouse.git
+          cd ClickHouse
+          git checkout ${{ steps.get_version.outputs.VERSION }}
+      - name: Copy files
+        run: |
+          mkdir build_context
+          cp ClickHouse/docker/server/entrypoint.sh build_context/
+          cp ClickHouse/docker/server/docker_related_config.xml build_context/
+          cp ClickHouse/programs/server/config.xml build_context/
+          cp ClickHouse/programs/server/users.xml build_context/
+      - uses: actions/upload-artifact@v2
+        with:
+          name: config
+          path: build_context/
+  create_release:
+    name: Create Release
+    runs-on: ubuntu-20.04
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        shell: bash
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: ${{ steps.get_version.outputs.VERSION }}
+          draft: true
+          prerelease: false
+  build_binary:
+    needs: create_release
+    runs-on: ubuntu-18.04
+    strategy:
+      matrix:
+        include:
+          - compiler: clang-11
+            arch: amd64
+          - compiler: clang-11-aarch64
+            arch: arm64
+    steps:
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        shell: bash
+      - name: Maximize build disk space
+        uses: whtsky/maximize-build-space@234e01f22ff43e7f71d76bd54b2b96e664608f2d
+        with:
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - name: Get clickhouse code
+        run: |
+          git clone https://github.com/ClickHouse/ClickHouse.git
+          cd ClickHouse
+          git checkout ${{ steps.get_version.outputs.VERSION }}
+          git submodule update --init --recursive
+      - name: Cache ccache
+        uses: actions/cache@v2
+        env:
+          cache-name: ccache
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}-${{ steps.get_version.outputs.VERSION }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}-${{ steps.get_version.outputs.VERSION }}
+            ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+      - name: Build clickhouse binary
+        run: |
+          cd ClickHouse/docker/packager/
+          mkdir dist_${{ matrix.arch }}
+          ./packager --package-type binary --output-dir dist_${{ matrix.arch }}/ --compiler ${{ matrix.compiler }}
+      - name: Build clickhouse binary
+        run: |
+          mkdir build_context
+          mv ClickHouse/docker/packager/dist_${{ matrix.arch }}/clickhouse build_context/clickhouse-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v2
+        with:
+          name: binary-${{ matrix.arch }}
+          path: build_context/
+      - id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: build_context/clickhouse-${{ matrix.arch }}
+          asset_name: clickhouse-${{ matrix.arch }}
+          asset_content_type: "application/binary"
+
+  build_docker:
+    needs: [build_binary, prepare_build_context]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Get the version
+        id: get_version
+        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+        shell: bash
+      - name: Login to Github Package
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_PAT }}
+      - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v2
+        with:
+          path: build_context
+      - name: Flatten artifacts
+        run: mv **/* .
+        working-directory: build_context
+      - name: Display structure of downloaded files
+        run: ls -R
+        working-directory: build_context
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          platforms: "linux/amd64,linux/arm64"
+          context: build_context
+          tags: "ghcr.io/${{ github.repository_owner }}/clickhouse:${{ steps.get_version.outputs.VERSION }}"
