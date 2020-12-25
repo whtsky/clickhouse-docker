@@ -93,7 +93,7 @@ jobs:
           cd ClickHouse/docker/packager/
           mkdir dist_${{ matrix.arch }}
           ./packager --package-type binary --output-dir dist_${{ matrix.arch }}/ --compiler ${{ matrix.compiler }}
-      - name: Build clickhouse binary
+      - name: Rename artifact
         run: |
           mkdir build_context
           mv ClickHouse/docker/packager/dist_${{ matrix.arch }}/clickhouse build_context/clickhouse-${{ matrix.arch }}
