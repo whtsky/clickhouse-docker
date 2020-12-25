@@ -1,22 +1,20 @@
 name: Build clickhouse image
 on:
   push:
+    branches:
     tags:
-      - "*"
 jobs:
   prepare_build_context:
     name: Prepare Build Context
     runs-on: ubuntu-20.04
     steps:
-      - name: Get the version
-        id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
-        shell: bash
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v3.x
       - name: Get clickhouse code
         run: |
           git clone https://github.com/ClickHouse/ClickHouse.git
           cd ClickHouse
-          git checkout ${{ steps.get_version.outputs.VERSION }}
+          git checkout ${{ env.GITHUB_REF_SLUG }}
       - name: Copy files
         run: |
           mkdir build_context
@@ -34,18 +32,17 @@ jobs:
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
     steps:
-      - name: Get the version
-        id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
-        shell: bash
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v3.x
       - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          release_name: ${{ steps.get_version.outputs.VERSION }}
+          release_name: ${{ env.GITHUB_REF_SLUG }}
           draft: true
           prerelease: false
   build_binary:
@@ -59,10 +56,8 @@ jobs:
           - compiler: clang-11-aarch64
             arch: arm64
     steps:
-      - name: Get the version
-        id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
-        shell: bash
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v3.x
       - name: Maximize build disk space
         uses: whtsky/maximize-build-space@234e01f22ff43e7f71d76bd54b2b96e664608f2d
         with:
@@ -78,7 +73,7 @@ jobs:
         run: |
           git clone https://github.com/ClickHouse/ClickHouse.git
           cd ClickHouse
-          git checkout ${{ steps.get_version.outputs.VERSION }}
+          git checkout ${{ env.GITHUB_REF_SLUG }}
           git submodule update --init --recursive
       - name: Cache ccache
         uses: actions/cache@v2
@@ -86,9 +81,9 @@ jobs:
           cache-name: ccache
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}-${{ steps.get_version.outputs.VERSION }}
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}-${{ env.GITHUB_REF_SLUG }}
           restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}-${{ steps.get_version.outputs.VERSION }}
+            ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}-${{ env.GITHUB_REF_SLUG }}
             ${{ runner.os }}-build-${{ env.cache-name }}-${{ matrix.compiler }}
             ${{ runner.os }}-build-${{ env.cache-name }}-
             ${{ runner.os }}-build-
@@ -108,6 +103,7 @@ jobs:
           path: build_context/
       - id: upload-release-asset
         uses: actions/upload-release-asset@v1
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -120,10 +116,8 @@ jobs:
     needs: [build_binary, prepare_build_context]
     runs-on: ubuntu-20.04
     steps:
-      - name: Get the version
-        id: get_version
-        run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
-        shell: bash
+      - name: Inject slug/short variables
+        uses: rlespinasse/github-slug-action@v3.x
       - name: Login to Github Package
         uses: docker/login-action@v1
         with:
@@ -151,4 +145,4 @@ jobs:
           push: true
           platforms: "linux/amd64,linux/arm64"
           context: build_context
-          tags: "ghcr.io/${{ github.repository_owner }}/clickhouse:${{ steps.get_version.outputs.VERSION }}"
+          tags: "ghcr.io/${{ github.repository_owner }}/clickhouse:${{ env.GITHUB_REF_SLUG }}"
