@@ -14,18 +14,22 @@ RUN mkdir /docker-entrypoint-initdb.d \
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-    apt-transport-https \
-    ca-certificates \
-    dirmngr \
-    gnupg \
-    locales \
-    wget \
+        apt-transport-https \
+        ca-certificates \
+        dirmngr \
+        gnupg \
+        locales \
+        wget \
     && rm -rf \
-    /var/lib/apt/lists/* \
-    /var/cache/debconf \
-    /tmp/* \
+        /var/lib/apt/lists/* \
+        /var/cache/debconf \
+        /tmp/* \
     && apt-get clean
 
+COPY config.xml /etc/clickhouse-server/
+COPY users.xml /etc/clickhouse-server/
+COPY docker_related_config.xml /etc/clickhouse-server/config.d/
+COPY entrypoint.sh /entrypoint.sh
 
 RUN groupadd -r clickhouse --gid=999 \
     && useradd -r -g clickhouse --uid=999 --home-dir=/nonexistent --shell=/bin/false clickhouse \
@@ -34,13 +38,9 @@ RUN groupadd -r clickhouse --gid=999 \
 
 ADD https://github.com/tianon/gosu/releases/download/$gosu_ver/gosu-${TARGETARCH} /bin/gosu
 
-COPY clickhouse-${TARGETARCH} /tmp/clickhouse
-RUN chmod +x /tmp/clickhouse && /tmp/clickhouse install --user clickhouse --group clickhouse --config-path /etc/clickhouse-server --binary-path /usr/bin --log-path /var/log/clickhouse-server --data-path /var/lib/clickhouse
-
-COPY config.xml /etc/clickhouse-server/
-COPY users.xml /etc/clickhouse-server/
-COPY docker_related_config.xml /etc/clickhouse-server/config.d/
-COPY entrypoint.sh /entrypoint.sh
+COPY clickhouse-${TARGETARCH} /usr/bin/clickhouse
+RUN chmod +x /usr/bin/clickhouse
+RUN ln -s /usr/bin/clickhouse /usr/bin/clickhouse-server 
 
 RUN chmod +x \
     /entrypoint.sh \
