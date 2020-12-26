@@ -14,16 +14,16 @@ RUN mkdir /docker-entrypoint-initdb.d \
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
-        apt-transport-https \
-        ca-certificates \
-        dirmngr \
-        gnupg \
-        locales \
-        wget \
+    apt-transport-https \
+    ca-certificates \
+    dirmngr \
+    gnupg \
+    locales \
+    wget \
     && rm -rf \
-        /var/lib/apt/lists/* \
-        /var/cache/debconf \
-        /tmp/* \
+    /var/lib/apt/lists/* \
+    /var/cache/debconf \
+    /tmp/* \
     && apt-get clean
 
 COPY config.xml /etc/clickhouse-server/
@@ -40,6 +40,7 @@ ADD https://github.com/tianon/gosu/releases/download/$gosu_ver/gosu-${TARGETARCH
 
 COPY clickhouse-${TARGETARCH} /usr/bin/clickhouse
 RUN chmod +x /usr/bin/clickhouse
+RUN command -v setcap >/dev/nul && setcap 'cap_net_admin,cap_ipc_lock,cap_sys_nice+ep' /usr/bin/clickhouse
 RUN ln -s /usr/bin/clickhouse /usr/bin/clickhouse-server 
 
 RUN chmod +x \
